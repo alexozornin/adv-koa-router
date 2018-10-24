@@ -100,7 +100,7 @@ async function getDynamicHandler(ddir, urlParts, index)
                 return {
                     [ddir.method]: async (ctx) =>
                     {
-                        ctx.body = await afs.readFileAsync(filePath, { encoding: 'utf8' });
+                        ctx.body = await afs.readFileAsync(filePath, ddir.fsOptions);
                         console.log('body', ctx.body);
                         return;
                     }
@@ -112,7 +112,7 @@ async function getDynamicHandler(ddir, urlParts, index)
             return {
                 [ddir.method]: async (ctx) =>
                 {
-                    ctx.body = await afs.readFileAsync(filePath, { encoding: 'utf8' });
+                    ctx.body = await afs.readFileAsync(filePath, ddir.fsOptions);
                     console.log('body', ctx.body);
                     return;
                 }
@@ -279,7 +279,7 @@ class KoaRouter
         }
     }
 
-    async addStaticDir(method, baseRoute, dir, defaultFileName)
+    async addStaticDir(method, baseRoute, dir, defaultFileName, fsOptions)
     {
         let baseRouteParts = baseRoute.match(/\/[^\/]+/g) || [];
         let baseMap = this._private.routingMap;
@@ -298,7 +298,7 @@ class KoaRouter
         {
             let handler = async (ctx) =>
             {
-                ctx.body = await afs.readFileAsync(path.join(dir, files[i]), { encoding: 'utf8' });
+                ctx.body = await afs.readFileAsync(path.join(dir, files[i]), fsOptions);
                 return;
             };
             let routeParts = files[i].match(fsre) || [];
@@ -340,12 +340,13 @@ class KoaRouter
         }
     }
 
-    addDynamicDir(method, baseRoute, dir, defaultFileName)
+    addDynamicDir(method, baseRoute, dir, defaultFileName, fsOptions)
     {
         let ddir = {
             dir,
             method,
-            defaultFileName
+            defaultFileName,
+            fsOptions
         };
         let baseRouteParts = baseRoute.match(/\/[^\/]+/g) || [];
         let baseMap = this._private.routingMap;
