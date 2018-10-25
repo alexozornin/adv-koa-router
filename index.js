@@ -50,13 +50,13 @@ function deepAddToObj(baseObj, addedObj)
     }
 }
 
-async function getHandler(routingMap, urlParts, index = -1)
+async function getHandler(routingMap, method, urlParts, index = -1)
 {
-    if (index == urlParts.length - 1 && routingMap.$this)
+    if (index == urlParts.length - 1 && routingMap.$this && routingMap.$this[method])
     {
         return routingMap.$this;
     }
-    if (routingMap.$ddir)
+    if (routingMap.$ddir && routingMap.$ddir.method == method)
     {
         let handler = await getDynamicHandler(routingMap.$ddir, urlParts, index);
         if (handler)
@@ -64,22 +64,22 @@ async function getHandler(routingMap, urlParts, index = -1)
             return handler;
         }
     }
-    if (routingMap.$all)
+    if (routingMap.$all && routingMap.$all[method])
     {
-        return routingMap.$all;
+        return routingMap.$all[method];
     }
     let handler = null;
     if (urlParts[index + 1] && routingMap[urlParts[index + 1]])
     {
-        handler = await getHandler(routingMap[urlParts[index + 1]], urlParts, index + 1);
+        handler = await getHandler(routingMap[urlParts[index + 1]], method, urlParts, index + 1);
     }
     if (handler)
     {
         return handler;
     }
-    else if (routingMap.$else)
+    else if (routingMap.$else[method])
     {
-        return routingMap.$else;
+        return routingMap.$else[method];
     }
     return null;
 }
@@ -97,25 +97,19 @@ async function getDynamicHandler(ddir, urlParts, index)
             stats = await afs.statAsync(filePath);
             if (stats && !stats.isDirectory())
             {
-                return {
-                    [ddir.method]: async (ctx) =>
-                    {
-                        ctx.body = await afs.readFileAsync(filePath, ddir.fsOptions);
-                        console.log('body', ctx.body);
-                        return;
-                    }
+                return async (ctx) =>
+                {
+                    ctx.body = await afs.readFileAsync(filePath, ddir.fsOptions);
+                    return;
                 }
             }
         }
         else
         {
-            return {
-                [ddir.method]: async (ctx) =>
-                {
-                    ctx.body = await afs.readFileAsync(filePath, ddir.fsOptions);
-                    console.log('body', ctx.body);
-                    return;
-                }
+            return async (ctx) =>
+            {
+                ctx.body = await afs.readFileAsync(filePath, ddir.fsOptions);
+                return;
             }
         }
     }
@@ -132,7 +126,6 @@ class KoaRouter
         }
         this._private = {};
         this._private.routingMap = {};
-        this._private.dd = {};
         this._private.handle = async (ctx, next) =>
         {
             if (hostnameWhitelist.length > 0 && !hostnameWhitelist.includes(ctx.hostname))
@@ -147,9 +140,9 @@ class KoaRouter
                 urlParts[i] = urlParts[i].replace('/', '');
             }
             let handler = await getHandler(this._private.routingMap, urlParts);
-            if (handler && handler[ctx.method])
+            if (handler)
             {
-                let result = handler[ctx.method](ctx, next, urlParts, url.query);
+                let result = handler(ctx, next, urlParts, url.query);
                 if (result instanceof Promise)
                 {
                     await result;
@@ -233,7 +226,7 @@ class KoaRouter
     {
         for (let i = 0; i < routes.length; i++)
         {
-            this.addHandler(method, routes[i], handler, type = '$this');
+            this.addHandler(method, routes[i], handler, type);
         }
     }
 
