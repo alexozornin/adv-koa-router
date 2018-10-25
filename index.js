@@ -35,6 +35,14 @@ function parseUrl(url)
     }
 }
 
+function getExtension(name) {
+    let parts = name.match(/\.[^\.]+/g);
+    if(parts && parts[0]) {
+        return parts[parts.length - 1];
+    }
+    return '';
+}
+
 function deepAddToObj(baseObj, addedObj)
 {
     for (let key in addedObj)
@@ -54,7 +62,7 @@ async function getHandler(routingMap, method, urlParts, index = -1)
 {
     if (index == urlParts.length - 1 && routingMap.$this && routingMap.$this[method])
     {
-        return routingMap.$this;
+        return routingMap.$this[method];
     }
     if (routingMap.$ddir && routingMap.$ddir.method == method)
     {
@@ -77,7 +85,7 @@ async function getHandler(routingMap, method, urlParts, index = -1)
     {
         return handler;
     }
-    else if (routingMap.$else[method])
+    else if (routingMap.$else && routingMap.$else[method])
     {
         return routingMap.$else[method];
     }
@@ -99,6 +107,11 @@ async function getDynamicHandler(ddir, urlParts, index)
             {
                 return async (ctx) =>
                 {
+                    let ext = getExtension(filePath);
+                    if (ddir.mimeMap && ddir.mimeMap[ext])
+                    {
+                        ctx.type = ddir.mimeMap[ext];
+                    }
                     ctx.body = await afs.readFileAsync(filePath, ddir.fsOptions);
                     return;
                 }
@@ -108,6 +121,11 @@ async function getDynamicHandler(ddir, urlParts, index)
         {
             return async (ctx) =>
             {
+                let ext = getExtension(filePath);
+                if (ddir.mimeMap && ddir.mimeMap[ext])
+                {
+                    ctx.type = ddir.mimeMap[ext];
+                }
                 ctx.body = await afs.readFileAsync(filePath, ddir.fsOptions);
                 return;
             }
@@ -139,7 +157,7 @@ class KoaRouter
             {
                 urlParts[i] = urlParts[i].replace('/', '');
             }
-            let handler = await getHandler(this._private.routingMap, urlParts);
+            let handler = await getHandler(this._private.routingMap, ctx.method, urlParts);
             if (handler)
             {
                 let result = handler(ctx, next, urlParts, url.query);
@@ -272,7 +290,7 @@ class KoaRouter
         }
     }
 
-    async addStaticDir(method, baseRoute, dir, defaultFileName, fsOptions)
+    async addStaticDir(method, baseRoute, dir, defaultFileName, fsOptions, mimeMap)
     {
         let baseRouteParts = baseRoute.match(/\/[^\/]+/g) || [];
         let baseMap = this._private.routingMap;
@@ -291,6 +309,11 @@ class KoaRouter
         {
             let handler = async (ctx) =>
             {
+                let ext = getExtension(files[i]);
+                if (mimeMap && mimeMap[ext])
+                {
+                    ctx.type = mimeMap[ext];
+                }
                 ctx.body = await afs.readFileAsync(path.join(dir, files[i]), fsOptions);
                 return;
             };
@@ -333,13 +356,14 @@ class KoaRouter
         }
     }
 
-    addDynamicDir(method, baseRoute, dir, defaultFileName, fsOptions)
+    addDynamicDir(method, baseRoute, dir, defaultFileName, fsOptions, mimeMap)
     {
         let ddir = {
             dir,
             method,
             defaultFileName,
-            fsOptions
+            fsOptions,
+            mimeMap
         };
         let baseRouteParts = baseRoute.match(/\/[^\/]+/g) || [];
         let baseMap = this._private.routingMap;
