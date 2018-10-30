@@ -35,9 +35,11 @@ function parseUrl(url)
     }
 }
 
-function getExtension(name) {
+function getExtension(name)
+{
     let parts = name.match(/\.[^\.]+/g);
-    if(parts && parts[0]) {
+    if (parts && parts[0])
+    {
         return parts[parts.length - 1];
     }
     return '';
@@ -144,6 +146,7 @@ class KoaRouter
         }
         this._private = {};
         this._private.routingMap = {};
+        this._private.params = [];
         this._private.handle = async (ctx, next) =>
         {
             if (hostnameWhitelist.length > 0 && !hostnameWhitelist.includes(ctx.hostname))
@@ -160,7 +163,7 @@ class KoaRouter
             let handler = await getHandler(this._private.routingMap, ctx.method, urlParts);
             if (handler)
             {
-                let result = handler(ctx, next, urlParts, url.query);
+                let result = handler(ctx, next, urlParts, url.query, ...this._private.params);
                 if (result instanceof Promise)
                 {
                     await result;
@@ -373,7 +376,7 @@ class KoaRouter
             if (!baseMap[baseRouteParts[i]])
             {
                 baseMap[baseRouteParts[i]] = {};
-            }``
+            } ``
             baseMap = baseMap[baseRouteParts[i]];
         }
         baseMap.$ddir = ddir;
@@ -424,6 +427,16 @@ class KoaRouter
             map[method] = handler;
             map = baseMap;
         }
+    }
+
+    addParams(...params)
+    {
+        this._private.params.push(...params);
+    }
+
+    setParams(params)
+    {
+        this._private.params = params || [];
     }
 }
 
