@@ -107,8 +107,33 @@ async function getDynamicHandler(ddir, urlParts, index)
             stats = await afs.statAsync(filePath);
             if (stats && !stats.isDirectory())
             {
-                return async (ctx) =>
+                return async (ctx, next, urlParts, query, ...params) =>
                 {
+                    if (ddir.checkAccessFunction)
+                    {
+                        let check = ddir.checkAccessFunction(ctx, next, urlParts, query, ...params);
+                        if (check instanceof Promise)
+                        {
+                            check = await check;
+                        }
+                        if (!check)
+                        {
+                            if (ddir.accessDeniedHandler)
+                            {
+                                let result = ddir.accessDeniedHandler(ctx, next, urlParts, query, ...params);
+                                if (result instanceof Promise)
+                                {
+                                    await result;
+                                }
+                            }
+                            else
+                            {
+                                ctx.status = 400;
+                                ctx.body = 'Access denied';
+                            }
+                            return;
+                        }
+                    }
                     let ext = getExtension(filePath);
                     if (ddir.mimeMap && ddir.mimeMap[ext])
                     {
@@ -121,8 +146,33 @@ async function getDynamicHandler(ddir, urlParts, index)
         }
         else
         {
-            return async (ctx) =>
+            return async (ctx, next, urlParts, query, ...params) =>
             {
+                if (ddir.checkAccessFunction)
+                {
+                    let check = ddir.checkAccessFunction(ctx, next, urlParts, query, ...params);
+                    if (check instanceof Promise)
+                    {
+                        check = await check;
+                    }
+                    if (!check)
+                    {
+                        if (ddir.accessDeniedHandler)
+                        {
+                            let result = ddir.accessDeniedHandler(ctx, next, urlParts, query, ...params);
+                            if (result instanceof Promise)
+                            {
+                                await result;
+                            }
+                        }
+                        else
+                        {
+                            ctx.status = 400;
+                            ctx.body = 'Access denied';
+                        }
+                        return;
+                    }
+                }
                 let ext = getExtension(filePath);
                 if (ddir.mimeMap && ddir.mimeMap[ext])
                 {
@@ -293,7 +343,7 @@ class KoaRouter
         }
     }
 
-    async addStaticDir(method, baseRoute, dir, defaultFileName, fsOptions, mimeMap)
+    async addStaticDir(method, baseRoute, dir, defaultFileName, fsOptions, mimeMap, checkAccessFunction, accessDeniedHandler)
     {
         let baseRouteParts = baseRoute.match(/\/[^\/]+/g) || [];
         let baseMap = this._private.routingMap;
@@ -310,8 +360,35 @@ class KoaRouter
         let map = baseMap;
         for (let i = 0; i < files.length; i++)
         {
-            let handler = async (ctx) =>
+            let handler = async (ctx, next, urlParts, query, ...params) =>
             {
+                console.log('handling static');
+                if (checkAccessFunction)
+                {
+                    let check = checkAccessFunction(ctx, next, urlParts, query, ...params);
+                    if (check instanceof Promise)
+                    {
+                        check = await check;
+                    }
+                    console.log('check access:', check);
+                    if (!check)
+                    {
+                        if (accessDeniedHandler)
+                        {
+                            let result = accessDeniedHandler(ctx, next, urlParts, query, ...params);
+                            if (result instanceof Promise)
+                            {
+                                await result;
+                            }
+                        }
+                        else
+                        {
+                            ctx.status = 400;
+                            ctx.body = 'Access denied';
+                        }
+                        return;
+                    }
+                }
                 let ext = getExtension(files[i]);
                 if (mimeMap && mimeMap[ext])
                 {
@@ -359,14 +436,16 @@ class KoaRouter
         }
     }
 
-    addDynamicDir(method, baseRoute, dir, defaultFileName, fsOptions, mimeMap)
+    addDynamicDir(method, baseRoute, dir, defaultFileName, fsOptions, mimeMap, checkAccessFunction, accessDeniedHandler)
     {
         let ddir = {
             dir,
             method,
             defaultFileName,
             fsOptions,
-            mimeMap
+            mimeMap,
+            checkAccessFunction,
+            accessDeniedHandler
         };
         let baseRouteParts = baseRoute.match(/\/[^\/]+/g) || [];
         let baseMap = this._private.routingMap;
