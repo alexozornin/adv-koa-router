@@ -362,7 +362,6 @@ class KoaRouter
         {
             let handler = async (ctx, next, urlParts, query, ...params) =>
             {
-                console.log('handling static');
                 if (checkAccessFunction)
                 {
                     let check = checkAccessFunction(ctx, next, urlParts, query, ...params);
@@ -370,7 +369,6 @@ class KoaRouter
                     {
                         check = await check;
                     }
-                    console.log('check access:', check);
                     if (!check)
                     {
                         if (accessDeniedHandler)
