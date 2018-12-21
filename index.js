@@ -4,7 +4,7 @@ const afs = require('alex-async-fs');
 const path = require('path');
 
 const allowedSpecs = ['$this', '$all', '$else'];
-const allowedHandlerNames = ['get.js', 'post.js'];
+const allowedHandlerNames = ['get.js', 'head.js', 'post.js', 'put.js', 'delete.js', 'connect.js', 'options.js', 'trace.js', 'patch.js'];
 
 const methodsMap = {
     'get.js': 'GET',
@@ -16,6 +16,17 @@ const methodsMap = {
     'options.js': 'OPTIONS',
     'trace.js': 'TRACE',
     'patch.js': 'PATCH',
+}
+
+const defaultEncodingMap = {
+    '.html': 'utf8',
+    '.js': 'utf8',
+    '.css': 'utf8'
+}
+
+const defaultMimeMap = {
+    '.js': 'text/javascript',
+    '.css': 'text/css'
 }
 
 const fsre = new RegExp('\\' + path.sep + '?[^\\' + path.sep + ']+', 'g');
@@ -141,12 +152,17 @@ async function getDynamicHandler(ddir, urlParts, index)
                             return;
                         }
                     }
+                    let fsOptions = {};
                     let ext = getExtension(filePath);
+                    if (ddir.encodingMap && ddir.encodingMap[ext])
+                    {
+                        fsOptions.encoding = ddir.encodingMap[ext];
+                    }
                     if (ddir.mimeMap && ddir.mimeMap[ext])
                     {
                         ctx.type = ddir.mimeMap[ext];
                     }
-                    ctx.body = await afs.readFileAsync(filePath, ddir.fsOptions);
+                    ctx.body = await afs.readFileAsync(filePath, fsOptions);
                     return;
                 }
             }
@@ -180,12 +196,17 @@ async function getDynamicHandler(ddir, urlParts, index)
                         return;
                     }
                 }
+                let fsOptions = {};
                 let ext = getExtension(filePath);
+                if (ddir.encodingMap && ddir.encodingMap[ext])
+                {
+                    fsOptions.encoding = ddir.encodingMap[ext];
+                }
                 if (ddir.mimeMap && ddir.mimeMap[ext])
                 {
                     ctx.type = ddir.mimeMap[ext];
                 }
-                ctx.body = await afs.readFileAsync(filePath, ddir.fsOptions);
+                ctx.body = await afs.readFileAsync(filePath, fsOptions);
                 return;
             }
         }
@@ -350,7 +371,7 @@ class KoaRouter
         }
     }
 
-    async addStaticDir(method, baseRoute, dir, defaultFileName, fsOptions, mimeMap, checkAccessFunction, accessDeniedHandler)
+    async addStaticDir(method, baseRoute, dir, defaultFileName, encodingMap = defaultEncodingMap, mimeMap = defaultMimeMap, checkAccessFunction, accessDeniedHandler)
     {
         let baseRouteParts = baseRoute.match(/\/[^\/]+/g) || [];
         let baseMap = this._private.routingMap;
@@ -394,7 +415,12 @@ class KoaRouter
                         return;
                     }
                 }
+                let fsOptions = {};
                 let ext = getExtension(files[i]);
+                if (encodingMap && encodingMap[ext])
+                {
+                    fsOptions.encoding = encodingMap[ext];
+                }
                 if (mimeMap && mimeMap[ext])
                 {
                     ctx.type = mimeMap[ext];
@@ -441,13 +467,13 @@ class KoaRouter
         }
     }
 
-    addDynamicDir(method, baseRoute, dir, defaultFileName, fsOptions, mimeMap, checkAccessFunction, accessDeniedHandler)
+    addDynamicDir(method, baseRoute, dir, defaultFileName, encodingMap = defaultEncodingMap, mimeMap = defaultMimeMap, checkAccessFunction, accessDeniedHandler)
     {
         let ddir = {
             dir,
             method,
             defaultFileName,
-            fsOptions,
+            encodingMap,
             mimeMap,
             checkAccessFunction,
             accessDeniedHandler
