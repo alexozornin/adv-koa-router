@@ -8,7 +8,14 @@ const allowedHandlerNames = ['get.js', 'post.js'];
 
 const methodsMap = {
     'get.js': 'GET',
-    'post.js': 'POST'
+    'head.js': 'HEAD',
+    'post.js': 'POST',
+    'put.js': 'PUT',
+    'delete.js': 'DELETE',
+    'connect.js': 'CONNECT',
+    'options.js': 'OPTIONS',
+    'trace.js': 'TRACE',
+    'patch.js': 'PATCH',
 }
 
 const fsre = new RegExp('\\' + path.sep + '?[^\\' + path.sep + ']+', 'g');
