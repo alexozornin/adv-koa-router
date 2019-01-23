@@ -25,6 +25,7 @@ const defaultEncodingMap = {
 }
 
 const defaultMimeMap = {
+    '.html': 'text/html',
     '.js': 'text/javascript',
     '.css': 'text/css'
 }
