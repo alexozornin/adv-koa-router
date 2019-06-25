@@ -56,6 +56,14 @@ const defaultMimeMap = {
 
 const fsre = new RegExp('\\' + path.sep + '?[^\\' + path.sep + ']+', 'g');
 
+function sleep(ms) {
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            resolve(true);
+        }, ms);
+    })
+}
+
 function parseUrl(url) {
     let parts = url.split(/\?|#/g);
     let query = {};
@@ -203,16 +211,34 @@ class KoaRouter {
      * Creates an instance of KoaRouter
      * @param {*} app A Koa application
      * @param {Array} hostnameWhitelist An array of hostnames that should be routed by this instance of KoaRouter (leave blank for all hostnames)
+     * @param {Object} options KoaRouter options
+     * @param {Number} options.balanceCacheInterval Minimal interval in miliseconds between adaptive cache balance attempts (leave blank if balance not needed)
      */
-    constructor(app, hostnameWhitelist) {
+    constructor(app, hostnameWhitelist, options) {
         if (!hostnameWhitelist) {
             hostnameWhitelist = [];
         }
+        if (!options) {
+            options = {};
+        }
+        if (!options.balanceCacheInterval) {
+            options.balanceCacheInterval = 0;
+        }
         this._private = {};
+        this._private.options = options;
         this._private.routingMap = {};
         this._private.params = [];
         this._private.cache = {};
-        this._private.handle = async (ctx, next) => {
+        this._private.adaptID = 0;
+        this._private.adapts = {};
+        this._private.lastBalance = options.balanceCacheInterval ? Date.now() + options.balanceCacheInterval : Number.MAX_SAFE_INTEGER;
+        this._private.getAdaptID = () => {
+            if (++this._private.adaptID >= Number.MAX_SAFE_INTEGER) {
+                this._private.adaptID = 1;
+            }
+            return this._private.adaptID;
+        }
+        this.handle = async (ctx, next) => {
             if (hostnameWhitelist.length > 0 && !hostnameWhitelist.includes(ctx.hostname)) {
                 next();
                 return;
@@ -228,12 +254,37 @@ class KoaRouter {
                 if (result instanceof Promise) {
                     await result;
                 }
+                if (Date.now() - this._private.options.balanceCacheInterval > this._private.lastBalance) {
+                    this.balanceCache();
+                }
                 return;
             }
             next();
             return;
         }
-        app.use(this._private.handle);
+        this._private.adapt = (filePath, adaptID, data, type, bytes) => {
+            if (this._private.adapts[adaptID].files[filePath]) {
+                ++this._private.adapts[adaptID].files[filePath].reqs;
+            }
+            else {
+                this._private.adapts[adaptID].files[filePath] = {
+                    reqs: 1,
+                    bytes
+                }
+            }
+            if (!this._private.cache[filePath]) {
+                if (this._private.adapts[adaptID].current + bytes <= this._private.adapts[adaptID].max) {
+                    this._private.adapts[adaptID].current += bytes;
+                    this._private.cache[filePath] = {
+                        data,
+                        type
+                    }
+                }
+            }
+        };
+        if (app) {
+            app.use(this.handle);
+        }
     }
 
     /**
@@ -394,13 +445,48 @@ class KoaRouter {
             baseMap = baseMap[baseRouteParts[i]];
         }
         let map = baseMap;
-        switch (options.memorize) {
-            case 'full':
-                //TODO
-                break;
+        let extension;
+        let fsOptions;
+        let adaptID = 0;
+        if (options.caching) {
+            let filePath;
+            let cache;
+            switch (options.caching) {
+                case 'full':
+                    for (let i = 0; i < files.length; i++) {
+                        filePath = path.join(dir, files[i]);
+                        cache = {};
+                        fsOptions = {};
+                        extension = getExtension(files[i]);
+                        if (options.encodingMap && options.encodingMap[extension]) {
+                            fsOptions.encoding = options.encodingMap[extension];
+                        }
+                        if (options.mimeMap && options.mimeMap[extension]) {
+                            cache.type = options.mimeMap[extension];
+                        }
+                        cache.data = await afs.readFileAsync(filePath, fsOptions);
+                        this._private.cache[filePath] = cache;
+                    }
+                    break;
+                case 'adaptive':
+                    adaptID = this._private.getAdaptID();
+                    this._private.adapts[adaptID] = {
+                        current: 0,
+                        max: options.cachingMaxRAM,
+                        files: {},
+                        options: {
+                            encodingMap: options.encodingMap,
+                            mimeMap: options.mimeMap
+                        }
+                    };
+                    break;
+                default:
+                    break;
+            }
         }
         for (let i = 0; i < files.length; i++) {
             let handler = async (ctx, next, urlParts, query, ...params) => {
+                let filePath = path.join(dir, files[i]);
                 if (options.checkAccessFunction) {
                     let check = options.checkAccessFunction(ctx, next, urlParts, query, ...params);
                     if (check instanceof Promise) {
@@ -414,29 +500,34 @@ class KoaRouter {
                             }
                         }
                         else {
-                            ctx.status = 400;
+                            ctx.status = 403;
                             ctx.body = 'Access denied';
                         }
                         return;
                     }
                 }
-                let filePath = path.join(dir, files[i]);
-                if (this._private.cache[filePath]) {
+                if (this._private.cache[filePath] && this._private.cache[filePath].data) {
                     if (this._private.cache[filePath].type) {
                         ctx.type = this._private.cache[filePath].type;
                     }
                     ctx.body = this._private.cache[filePath].data;
-                    return;
                 }
-                let fsOptions = {};
-                let ext = getExtension(files[i]);
-                if (options.encodingMap && options.encodingMap[ext]) {
-                    fsOptions.encoding = options.encodingMap[ext];
+                else {
+                    let fsOptions = {};
+                    let ext = getExtension(files[i]);
+                    if (options.encodingMap && options.encodingMap[ext]) {
+                        fsOptions.encoding = options.encodingMap[ext];
+                    }
+                    if (options.mimeMap && options.mimeMap[ext]) {
+                        ctx.type = options.mimeMap[ext];
+                    }
+                    ctx.body = await afs.readFileAsync(filePath, fsOptions);
                 }
-                if (options.mimeMap && options.mimeMap[ext]) {
-                    ctx.type = options.mimeMap[ext];
+                if (adaptID) {
+                    let buffer = Buffer.from(ctx.body);
+                    let bytes = buffer.length;
+                    this._private.adapt(filePath, adaptID, ctx.body, ctx.type, bytes);
                 }
-                ctx.body = await afs.readFileAsync(filePath, fsOptions);
                 return;
             };
             let routeParts = files[i].match(fsre) || [];
@@ -555,7 +646,7 @@ class KoaRouter {
 
     /**
      * Adds params to be passed to all handlers
-     * @param  {...any} params 
+     * @param  {...any} params
      */
     addParams(...params) {
         this._private.params.push(...params);
@@ -563,10 +654,71 @@ class KoaRouter {
 
     /**
      * Sets params to be passed to all handlers
-     * @param {Array} params 
+     * @param {Array} params
      */
     setParams(params) {
         this._private.params = params || [];
+    }
+
+    /**
+     * Balances adaptive RAM cache
+     */
+    async balanceCache() {
+        let cachedFiles = [];
+        let uncachedFiles = [];
+        for (let adaptID in this._private.adapts) {
+            let adapt = this._private.adapts[adaptID];
+            let files = [];
+            for (let key in adapt.files) {
+                files.push({
+                    filePath: key,
+                    reqs: adapt.files[key].reqs,
+                    bytes: adapt.files[key].bytes,
+                    options: adapt.options
+                })
+            }
+            files.sort((a, b) => {
+                if (b.reqs > a.reqs) {
+                    return 1;
+                }
+                if (b.reqs < a.reqs) {
+                    return -1;
+                }
+                return 0;
+            });
+            let usedBytes = 0;
+            for (let i = 0; i < files.length; i++) {
+                if (usedBytes + files[i].bytes <= adapt.max) {
+                    usedBytes += files[i].bytes;
+                    cachedFiles.push(files[i]);
+                }
+                else {
+                    uncachedFiles.push(files[i]);
+                }
+            }
+        }
+        for (let i = 0; i < uncachedFiles.length; i++) {
+            delete this._private.cache[uncachedFiles[i].filePath];
+        }
+        for (let i = 0; i < cachedFiles.length; i++) {
+            if (!this._private.cache[cachedFiles[i].filePath]) {
+                let cache = {};
+                let fsOptions = {};
+                let extension = getExtension(cachedFiles[i].filePath);
+                if (cachedFiles[i].options.encodingMap && cachedFiles[i].options.encodingMap[extension]) {
+                    fsOptions.encoding = cachedFiles[i].options.encodingMap[extension];
+                }
+                if (cachedFiles[i].options.mimeMap && cachedFiles[i].options.mimeMap[extension]) {
+                    cache.type = cachedFiles[i].options.mimeMap[extension];
+                }
+                cache.data = await afs.readFileAsync(cachedFiles[i].filePath, fsOptions);
+                this._private.cache[cachedFiles[i].filePath] = cache;
+            }
+        }
+    }
+
+    clearCache() {
+        this._private.cache = {};
     }
 }
 
